@@ -27,6 +27,7 @@ import json
 import os
 import sqlite3
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -65,6 +66,12 @@ def query(sql, args=(), uri=DB_URI):
     finally:
         conn.close()
 
+
+# When the extension last polled. This is the only evidence that the extension
+# half of the pipeline is alive: its requests are sub-100ms, so you cannot catch
+# them with lsof, and a dead extension looks exactly like "nobody messaged me".
+# Exposed via /api/health so doctor.sh can check the one hop it otherwise cannot.
+_last_poll_at = None
 
 _self_ids = None
 
@@ -164,6 +171,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self):
+        # Declared once at the top: Python rejects a `global` statement that comes
+        # after the name has already been read elsewhere in the same function.
+        global _last_poll_at
         parsed = urlparse(self.path)
 
         if parsed.path == "/":
@@ -176,6 +186,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/health":
             try:
+                since = (
+                    None if _last_poll_at is None else round(time.time() - _last_poll_at, 1)
+                )
                 self._send(
                     200,
                     json.dumps(
@@ -184,6 +197,7 @@ class Handler(BaseHTTPRequestHandler):
                             "db": DB_PATH,
                             "selfIds": sorted(self_ids()),
                             "maxRowId": max_rowid(),
+                            "lastPollSecondsAgo": since,
                         }
                     ),
                 )
@@ -192,6 +206,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/head":
+            _last_poll_at = time.time()
             try:
                 self._send(200, json.dumps({"maxRowId": max_rowid()}))
             except Exception as e:
@@ -199,6 +214,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/new":
+            _last_poll_at = time.time()
             qs = parse_qs(parsed.query)
             try:
                 since = int(qs.get("since", ["0"])[0])

@@ -159,6 +159,23 @@ else
   else
     record notifier "self identity" pass "$IDS"
   fi
+
+  # The extension is otherwise invisible: its polls are sub-100ms so lsof never
+  # catches them, and an extension that is unloaded, crashed or pointed at the
+  # wrong port looks identical to "nobody has messaged you". This is the check
+  # that tells them apart.
+  POLL="$(printf '%s' "$NOTE" | sed -n 's/.*"lastPollSecondsAgo":[[:space:]]*\([0-9.]*\).*/\1/p')"
+  if printf '%s' "$NOTE" | grep -q '"lastPollSecondsAgo":[[:space:]]*null'; then
+    record extension "polling" fail "nothing has ever polled; the Chrome extension is not running"
+    hint "Load it: chrome://extensions > Developer mode > Load unpacked > $REPO_ROOT/extension"
+  elif [ -z "$POLL" ]; then
+    record extension "polling" warn "notifier is too old to report this; restart it"
+  elif [ "${POLL%%.*}" -gt 120 ] 2>/dev/null; then
+    record extension "polling" fail "last poll was ${POLL}s ago; expected every 30s"
+    hint "The service worker may be asleep or erroring. Check its console."
+  else
+    record extension "polling" pass "last poll ${POLL}s ago"
+  fi
 fi
 
 # -------------------------------------------------------- 6. quarantine ---
@@ -206,12 +223,10 @@ fi
 
 say ""
 step "7. Cannot be checked from here"
-dim "  - Chrome extension loaded and enabled     chrome://extensions"
-dim "  - Extension service worker alive          click 'service worker' on the card, look for"
-dim "                                            'wa-notifier ext: buffered ...' in the console"
 dim "  - MCP server registered in Aside          tools appear only after toggling the server off/on"
 dim "  - Event routine armed in Aside            titleIncludes filter 'WhatsApp: '"
-dim "  See docs/SETUP.md steps 5-8 and docs/TROUBLESHOOTING.md."
+dim "  - Notification permission granted         chrome://settings/content/notifications"
+dim "  See docs/SETUP.md steps 6-8 and docs/TROUBLESHOOTING.md."
 
 say ""
 if [ "$FAILED" -eq 0 ]; then
