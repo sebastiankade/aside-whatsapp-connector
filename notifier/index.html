@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WhatsApp Notifier</title>
+<style>
+  body { font: 14px -apple-system, system-ui, sans-serif; margin: 0; padding: 24px;
+         background: #0f1418; color: #e6edf3; }
+  h1 { font-size: 16px; margin: 0 0 4px; font-weight: 600; }
+  .sub { color: #8b949e; font-size: 12px; margin-bottom: 20px; }
+  .pill { display: inline-block; padding: 3px 10px; border-radius: 999px;
+          font-size: 12px; font-weight: 600; }
+  .ok { background: #16341f; color: #6fdc8c; }
+  .warn { background: #3a2c0c; color: #f0c674; }
+  .err { background: #3d1d1d; color: #ff8080; }
+  #log { margin-top: 20px; border-top: 1px solid #21262d; padding-top: 12px; }
+  .row { padding: 8px 0; border-bottom: 1px solid #161b22; }
+  .who { color: #58a6ff; font-weight: 600; }
+  .when { color: #6e7681; font-size: 11px; float: right; }
+  .txt { color: #c9d1d9; margin-top: 2px; }
+  button { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
+           padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  button:hover { background: #30363d; }
+</style>
+</head>
+<body>
+  <h1>WhatsApp Notifier</h1>
+  <div class="sub">Watches the bridge database and fires a browser notification per inbound message.</div>
+
+  <div>
+    <span id="status" class="pill warn">starting</span>
+    <span id="perm" class="pill warn">permission unknown</span>
+    <span id="seen" class="pill warn">rowid --</span>
+  </div>
+
+  <div style="margin-top:16px">
+    <button id="ask">Enable notifications</button>
+    <button id="test">Fire test notification</button>
+  </div>
+
+  <div id="log"></div>
+
+<script>
+const POLL_MS = 3000;
+const LS_KEY = 'wa-notifier-lastRowId';
+let lastRowId = null;
+let failures = 0;
+
+// Persist progress so a closed/reopened tab resumes instead of skipping
+// whatever arrived while it was gone.
+function saveCursor(id) {
+  try { localStorage.setItem(LS_KEY, String(id)); } catch (e) {}
+}
+function loadCursor() {
+  try {
+    const v = localStorage.getItem(LS_KEY);
+    return v === null ? null : parseInt(v, 10);
+  } catch (e) { return null; }
+}
+
+const $ = id => document.getElementById(id);
+const setPill = (el, cls, text) => { el.className = 'pill ' + cls; el.textContent = text; };
+
+function updatePerm() {
+  const p = Notification.permission;
+  setPill($('perm'), p === 'granted' ? 'ok' : 'err', 'permission: ' + p);
+}
+
+function logRow(m) {
+  const d = document.createElement('div');
+  d.className = 'row';
+  const who = m.chat_name || m.sender || 'unknown';
+  const when = (m.timestamp || '').replace('T', ' ').slice(0, 19);
+  d.innerHTML = '<span class="when"></span><span class="who"></span><div class="txt"></div>';
+  d.querySelector('.when').textContent = when;
+  d.querySelector('.who').textContent = who;
+  d.querySelector('.txt').textContent = m.content || ('[' + (m.media_type || 'no text') + ']');
+  $('log').prepend(d);
+  while ($('log').children.length > 40) $('log').lastChild.remove();
+}
+
+function notify(m) {
+  if (Notification.permission !== 'granted') return;
+  const isGroup = (m.chat_jid || '').endsWith('@g.us');
+  const who = m.chat_name || m.sender || 'WhatsApp';
+  const title = isGroup ? ('WhatsApp group: ' + who) : ('WhatsApp: ' + who);
+  const body = m.content || ('[' + (m.media_type || 'media') + ']');
+  try {
+    // tag becomes Aside's threadKey -> n#<origin>#<chat_jid>
+    // so a routine can filter to one specific chat without parsing text.
+    new Notification(title, { body: body, tag: m.chat_jid, renotify: false });
+  } catch (e) {
+    console.error('notify failed', e);
+  }
+}
+
+async function tick() {
+  try {
+    if (lastRowId === null) {
+      const saved = loadCursor();
+      if (saved !== null && !Number.isNaN(saved)) {
+        // Resume where we left off and catch up on anything missed.
+        lastRowId = saved;
+        setPill($('status'), 'ok', 'resuming from ' + lastRowId);
+      } else {
+        // First ever run: start from now rather than replaying all history.
+        const h = await (await fetch('/api/head')).json();
+        lastRowId = h.maxRowId;
+        saveCursor(lastRowId);
+        setPill($('status'), 'ok', 'watching');
+      }
+      setPill($('seen'), 'ok', 'rowid ' + lastRowId);
+      return;
+    }
+    const r = await fetch('/api/new?since=' + lastRowId);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    for (const m of data.messages) {
+      notify(m);
+      logRow(m);
+      lastRowId = Math.max(lastRowId, m.rowid);
+    }
+    if (data.messages.length) {
+      saveCursor(lastRowId);
+      setPill($('seen'), 'ok', 'rowid ' + lastRowId);
+    }
+    failures = 0;
+    setPill($('status'), 'ok', 'watching');
+  } catch (e) {
+    failures++;
+    setPill($('status'), 'err', 'error: ' + e.message + ' (' + failures + ')');
+  }
+}
+
+$('ask').onclick = async () => { await Notification.requestPermission(); updatePerm(); };
+$('test').onclick = () => {
+  new Notification('WhatsApp Notifier test', { body: 'manual test fired at ' + new Date().toISOString(), tag: 'wa-notifier-test' });
+};
+
+updatePerm();
+tick();
+setInterval(tick, POLL_MS);
+</script>
+</body>
+</html>

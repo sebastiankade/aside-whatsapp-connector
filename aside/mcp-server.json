@@ -1,0 +1,27 @@
+{
+  "_comment": [
+    "Register the WhatsApp MCP server in Aside with this shape.",
+    "",
+    "Two things bite people here:",
+    "",
+    "1. The transport literal is 'streamable-http', not 'http'. Aside's schema",
+    "   does not validate nested server entries, so a wrong value is accepted and",
+    "   persists silently, giving you a server that looks enabled and does nothing.",
+    "",
+    "2. Writing this config does NOT make the tools callable. Tool discovery only",
+    "   fires on a UI lifecycle event. After saving, open Aside Settings and toggle",
+    "   the server OFF and then ON. The tools are then hot-injected into sessions",
+    "   that are already running. Ground truth for 'is this live' is",
+    "   mcp.inventories.whatsapp.refreshedAt, not servers.whatsapp.enabled.",
+    "",
+    "Adjust the port if you passed --mcp-port to install.sh."
+  ],
+  "servers": {
+    "whatsapp": {
+      "enabled": true,
+      "transport": "streamable-http",
+      "url": "http://127.0.0.1:8009/mcp",
+      "auth": { "type": "none" }
+    }
+  }
+}

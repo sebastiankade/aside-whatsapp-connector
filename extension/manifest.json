@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "WhatsApp Notifier",
+  "version": "0.2.0",
+  "description": "Polls the local wa-notifier service and raises one grouped notification per chat once that chat goes quiet. No tab required.",
+  "permissions": [
+    "notifications",
+    "alarms",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8011/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
