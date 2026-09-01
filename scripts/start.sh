@@ -26,9 +26,14 @@ for label in "${ALL_LABELS[@]}"; do
 done
 
 say ""
-step "Waiting for services to come up"
-for _ in $(seq 1 20); do
+# The bridge and notifier are up in a second or two. The MCP server is the slow
+# one: `uv run` resolves and may build the environment on a cold venv, which
+# measured at roughly 50 seconds on a first install. A 20s wait here reports a
+# healthy stack as broken, so be patient.
+step "Waiting for services to come up (the MCP server can take a minute)"
+for i in $(seq 1 90); do
   if port_is_open "$WHATSAPP_BRIDGE_PORT" && port_is_open "$WHATSAPP_MCP_PORT" && port_is_open "$WA_NOTIFIER_PORT"; then
+    ok "all three ports listening after ${i}s"
     break
   fi
   sleep 1

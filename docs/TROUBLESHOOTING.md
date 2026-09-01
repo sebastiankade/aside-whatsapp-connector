@@ -106,6 +106,10 @@ xattr -dr com.apple.quarantine ~/Dev/whatsapp-mcp \
 xattr -d com.apple.quarantine ~/Library/LaunchAgents/com.aside-whatsapp.*.plist
 ```
 
+Note that a fresh `git clone` leaves every object under `.git/` quarantined.
+That is harmless and expected: launchd never executes those. `doctor.sh` checks
+only the binary, the launcher scripts and the plists for exactly this reason.
+
 `install.sh` does this, but **rebuilding re-applies the flag**, and the plists
 are in a separate directory that is easy to forget. `scripts/doctor.sh` checks
 for it.
@@ -155,6 +159,25 @@ make the bridge POST every inbound message to an unvetted local port.
 **Fix:** edit `~/Library/Application Support/aside-whatsapp/env.sh` instead,
 which every launcher explicitly sources, then `scripts/stop.sh && scripts/start.sh`.
 If you are running something by hand: `set -a; . ./.env; set +a` first.
+
+### Port 8009 shows nothing listening right after `start.sh`
+
+Usually not broken, just slow. The bridge and notifier come up in a second or
+two; `uv run` has to resolve and may build the environment, which measured at
+roughly 50 seconds on a first install. A health check run too early reports a
+healthy stack as dead.
+
+**Fix:** wait a minute and re-run `scripts/doctor.sh`. It retries the handshake
+five times before failing, and `start.sh` waits up to 90 seconds.
+
+If it is still down after that, the log will say why:
+
+```bash
+tail -30 ~/Library/Logs/aside-whatsapp/mcp.err.log
+```
+
+`Uvicorn running on http://127.0.0.1:8009` means it is up regardless of what any
+earlier check said.
 
 ### `Address already in use`, or a 404 with a Python traceback at `/mcp`
 

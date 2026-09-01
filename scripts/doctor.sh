@@ -106,14 +106,28 @@ fi
 # Accept header offering text/event-stream. So 406 means healthy. Probe with a
 # real initialize POST rather than trusting a GET.
 MCP_URL="http://$WHATSAPP_MCP_HOST:$WHATSAPP_MCP_PORT/mcp"
-CODE="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' -X POST "$MCP_URL" \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"doctor","version":"1"}}}' \
-  2>/dev/null || echo 000)"
+# uv can take the better part of a minute to bring the server up from a cold
+# venv, so a single probe right after start.sh reports a false failure. Retry
+# briefly before believing it. curl already prints 000 on a connection failure;
+# do not add another fallback or you get a nonsense code like "000000".
+mcp_probe() {
+  curl -sS -m 5 -o /dev/null -w '%{http_code}' -X POST "$MCP_URL" \
+    -H 'Content-Type: application/json' \
+    -H 'Accept: application/json, text/event-stream' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"doctor","version":"1"}}}' \
+    2>/dev/null
+}
+
+CODE="$(mcp_probe)"
+for _ in 1 2 3 4 5; do
+  [ "$CODE" = "200" ] && break
+  sleep 3
+  CODE="$(mcp_probe)"
+done
+
 case "$CODE" in
   200) record mcp "initialize handshake" pass "$MCP_URL" ;;
-  000) record mcp "initialize handshake" fail "no response at $MCP_URL" ;;
+  000) record mcp "initialize handshake" fail "no response at $MCP_URL after 5 attempts" ;;
   404) record mcp "initialize handshake" fail "HTTP 404 - something else is squatting port $WHATSAPP_MCP_PORT" ;;
   *)   record mcp "initialize handshake" fail "unexpected HTTP $CODE from $MCP_URL" ;;
 esac
@@ -150,17 +164,33 @@ fi
 # -------------------------------------------------------- 6. quarantine ---
 
 section "6. Gatekeeper quarantine"
+# Check ONLY the files launchd actually executes or parses. Recursing over a
+# whole repo is useless noise: a fresh `git clone` leaves every object in .git
+# quarantined, and launchd never touches those. Flagging them sends people
+# chasing a problem that does not exist.
 QCOUNT=0
-for p in "$REPO_ROOT" "$APP_SUPPORT" "$ASIDE_WA_BRIDGE_BINARY" "$LAUNCH_AGENTS/$LABEL_BRIDGE.plist"; do
-  [ -e "$p" ] || continue
-  if xattr -r "$p" 2>/dev/null | grep -q com.apple.quarantine; then
-    QCOUNT=$((QCOUNT + 1))
-  fi
+QPATHS="$ASIDE_WA_BRIDGE_BINARY
+$REPO_ROOT/notifier/server.py
+$APP_SUPPORT/run-bridge.sh
+$APP_SUPPORT/run-mcp.sh
+$APP_SUPPORT/run-notifier.sh
+$APP_SUPPORT/monitor.sh"
+for label in "${ALL_LABELS[@]}"; do
+  QPATHS="$QPATHS
+$LAUNCH_AGENTS/$label.plist"
 done
+
+while IFS= read -r p; do
+  [ -n "$p" ] && [ -e "$p" ] || continue
+  if xattr "$p" 2>/dev/null | grep -q com.apple.quarantine; then
+    QCOUNT=$((QCOUNT + 1))
+    hint "quarantined: $p"
+  fi
+done <<< "$QPATHS"
 if [ "$QCOUNT" -eq 0 ]; then
   record quarantine "com.apple.quarantine" pass "clean"
 else
-  record quarantine "com.apple.quarantine" fail "$QCOUNT path(s) flagged; launchd will refuse them at next login"
+  record quarantine "com.apple.quarantine" fail "$QCOUNT executable path(s) flagged; launchd will refuse them at next login"
   hint "Fix:  xattr -dr com.apple.quarantine '$REPO_ROOT' '$APP_SUPPORT' '$ASIDE_WA_MCP_DIR'"
   hint "      xattr -d  com.apple.quarantine '$LAUNCH_AGENTS'/com.aside-whatsapp.*.plist"
 fi
