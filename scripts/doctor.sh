@@ -64,7 +64,7 @@ fi
 
 TOKEN_FILE="$ASIDE_WA_STORE_DIR/.bridge-token"
 if [ -r "$TOKEN_FILE" ]; then
-  TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE")"
+  TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE" || true)"
   record bridge "auth token" pass "${#TOKEN} chars"
 else
   TOKEN=""
@@ -87,7 +87,7 @@ fi
 
 section "3. Message database"
 if [ -f "$WHATSAPP_DB_PATH" ]; then
-  record db "messages.db" pass "$(du -h "$WHATSAPP_DB_PATH" | awk '{print $1}') at $WHATSAPP_DB_PATH"
+  record db "messages.db" pass "$(du -h "$WHATSAPP_DB_PATH" 2>/dev/null | awk '{print $1}' || echo '?') at $WHATSAPP_DB_PATH"
 else
   record db "messages.db" fail "missing at $WHATSAPP_DB_PATH; has the bridge ever connected?"
 fi
@@ -118,11 +118,16 @@ mcp_probe() {
     2>/dev/null
 }
 
-CODE="$(mcp_probe)"
+# The `|| true` is load-bearing. curl exits non-zero on a connection failure or
+# timeout, and common.sh sets `set -euo pipefail`, so without it a single
+# transient failure kills doctor mid-run with curl's exit code instead of
+# reporting the check. Do not use `|| echo 000` here: curl has already printed
+# 000 via -w, and the two concatenate into a nonsense "HTTP 000000".
+CODE="$(mcp_probe || true)"
 for _ in 1 2 3 4 5; do
   [ "$CODE" = "200" ] && break
   sleep 3
-  CODE="$(mcp_probe)"
+  CODE="$(mcp_probe || true)"
 done
 
 case "$CODE" in
