@@ -46,8 +46,8 @@ restricted chat surface.
 ## What you get
 
 - **Any WhatsApp message to the bot wakes an agent.** DMs always. Group messages
-  only when the bot is @-mentioned or someone replies to it, so a busy group
-  does not spawn a session per line of chatter.
+  too, on every message, with no @-mention needed. Being added to the group is
+  the opt-in; removing the bot is the opt-out.
 - **Bursts are batched.** Ten messages in a row become one wake, not ten
   concurrent Aside sessions. The extension holds a chat open until it goes quiet
   for 25 seconds, then fires one grouped notification.

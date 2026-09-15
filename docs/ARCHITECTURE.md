@@ -83,26 +83,38 @@ It opens `messages.db` **read-only** (`file:...?mode=ro`) so it cannot possibly
 corrupt what the bridge is writing, and serves three endpoints on
 `127.0.0.1:8011`: `/api/head`, `/api/new?since=N`, `/api/health`.
 
-Its real job is the filter, `is_addressed()`:
+Its selection rule is deliberately minimal:
 
-- **DMs always pass.** Someone messaged the bot directly; that is unambiguous.
-- **Group messages only pass** when the bot is @-mentioned or someone replied to
-  something the bot said. Without this, a busy group wakes an Aside session for
-  every unrelated line of chatter, which is both expensive and useless.
-- **`is_from_me = 0` always.** Otherwise the agent notifies itself about its own
-  replies and loops forever.
+- **Everything inbound passes.** Every DM, and every message in every group the
+  bot has been added to.
+- **`is_from_me = 0` always.** This is the one real filter. Without it the agent
+  notifies itself about its own replies and loops forever.
+
+**Group membership is the only gate.** There is no @-mention requirement. Adding
+the bot to a group is an explicit act by a group member, and that is treated as
+consent to be woken by that group. To stop a group waking the agent, remove the
+bot from it. This is a change from the original design, which required an
+@-mention or a reply; that was too restrictive in practice, because the common
+case is a normal conversation the agent should be following, not a direct
+summons.
+
+The cost of this is real and worth stating: a busy group now wakes a session per
+burst, and any group member's text reaches a full-access agent. The debounce in
+the extension is what keeps the first problem bounded; the routine prompt and
+[SECURITY.md](SECURITY.md) are what handle the second.
 
 Two details worth keeping:
 
 **Self identity is read from whatsmeow's own device row, not hardcoded.** It
-collects both the phone number and the LID, because WhatsApp writes an @-mention
-using the LID of the person mentioned, not their number. Reading it live means
-re-pairing to a different number cannot silently break mention detection.
+collects both the phone number and the LID, because WhatsApp refers to a
+participant by LID in groups and by number in DMs. It no longer affects which
+messages pass, but `/api/health` still reports it so `doctor.sh` can prove the
+notifier can actually read `whatsapp.db`.
 
-**`/api/new` returns a `head` separate from the returned rows.** `head` is the
-high-water mark of everything *examined*, including messages the filter rejected.
-The client advances its cursor to `head`, so ignored group chatter is skipped
-once rather than rescanned on every poll forever.
+**`/api/new` returns a `head` separate from the returned rows.** Now that
+nothing is rejected, `head` equals the highest rowid returned in the normal
+case. It stays a separate field because the `LIMIT` can truncate a large burst,
+and the client must advance its cursor to what was actually scanned.
 
 ### 4. The extension
 

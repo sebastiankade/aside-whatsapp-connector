@@ -160,7 +160,7 @@ else
   IDS="$(printf '%s' "$NOTE" | sed -n 's/.*"selfIds":[[:space:]]*\[\([^]]*\)\].*/\1/p')"
   record notifier "database read" pass "maxRowId=${ROWS:-?}"
   if [ -z "$IDS" ]; then
-    record notifier "self identity" fail "unknown; group @-mention detection will not work"
+    record notifier "self identity" fail "unknown; notifier cannot read whatsapp.db (check WA_NOTIFIER_SELF_DB)"
   else
     record notifier "self identity" pass "$IDS"
   fi

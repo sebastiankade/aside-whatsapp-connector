@@ -3,8 +3,13 @@
 wa-notifier: WhatsApp -> browser notification bridge.
 
 Reads the SQLite database that the whatsapp-mcp Go bridge already writes, and
-exposes the inbound messages actually addressed to the bot: every DM, plus group
-messages that @-mention the bot or reply to something the bot said.
+exposes every inbound message the bot can see: all DMs, and all messages in any
+group the bot has been added to. Group membership is the only gate. Adding the
+bot to a group is an explicit act, so it is treated as consent to be woken by
+that group; remove the bot from the group to stop it.
+
+Messages the bot itself sent are excluded, otherwise replying would wake it
+again in a loop.
 
 A Chrome extension polls this service and raises one grouped notification per
 chat. Aside captures those as `web-push-notification` inbox events, which wake
@@ -80,9 +85,13 @@ def self_ids():
     """Identifiers that mean "the bot" inside message text.
 
     Read from whatsmeow's device row rather than hardcoded, so relinking the bot
-    to a different number can never silently break mention detection. Returns
-    both the phone number and the LID, because WhatsApp writes an @-mention
-    using the LID of the person mentioned, not their phone number.
+    to a different number can never silently break identity reporting. Returns
+    both the phone number and the LID, because WhatsApp refers to a participant
+    by LID in group contexts and by phone number in DMs.
+
+    Not used for filtering any more (every visible message wakes the agent),
+    but still surfaced on /api/health so doctor.sh can prove the bridge knows
+    which account it is paired to.
     """
     global _self_ids
     if _self_ids is not None:
@@ -104,22 +113,6 @@ def self_ids():
     return _self_ids
 
 
-def is_addressed(row):
-    """Should this inbound message wake the agent?
-
-    DMs always count: someone messaged the bot directly. Group messages only
-    count when the bot is actually being spoken to, either by @-mention or by
-    replying to something the bot said. Without this a busy group would wake an
-    Aside task for every unrelated line of chatter.
-    """
-    if not (row.get("chat_jid") or "").endswith("@g.us"):
-        return True
-    if row.get("replies_to_self"):
-        return True
-    content = row.get("content") or ""
-    return any(f"@{i}" in content for i in self_ids())
-
-
 def max_rowid():
     rows = query("SELECT COALESCE(MAX(rowid), 0) AS m FROM messages")
     return rows[0]["m"] if rows else 0
@@ -137,13 +130,8 @@ def messages_since(since_rowid, limit=50):
                m.content,
                m.timestamp,
                m.media_type,
-               c.name AS chat_name,
-               CASE WHEN m.quoted_message_id IS NOT NULL AND EXISTS (
-                   SELECT 1 FROM messages q
-                   WHERE q.id = m.quoted_message_id
-                     AND q.chat_jid = m.chat_jid
-                     AND q.is_from_me = 1
-               ) THEN 1 ELSE 0 END AS replies_to_self
+               m.quoted_message_id,
+               c.name AS chat_name
         FROM messages m
         LEFT JOIN chats c ON c.jid = m.chat_jid
         WHERE m.rowid > ? AND m.is_from_me = 0
@@ -153,11 +141,11 @@ def messages_since(since_rowid, limit=50):
         (since_rowid, limit),
     )
 
-    # head is the high-water mark of everything examined, not just what passed
-    # the filter. The caller advances its cursor to head so ignored group
-    # chatter is skipped once instead of being rescanned on every poll.
+    # Everything scanned is also delivered now, so head is just the highest
+    # rowid seen. It is still reported separately because LIMIT can truncate a
+    # burst, and the caller must advance its cursor to what was actually read.
     head = max((r["rowid"] for r in rows), default=since_rowid)
-    return [r for r in rows if is_addressed(r)], head
+    return rows, head
 
 
 class Handler(BaseHTTPRequestHandler):

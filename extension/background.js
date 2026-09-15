@@ -130,9 +130,9 @@ async function collect() {
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const data = await res.json();
 
-  // The server filters out group chatter that isn't addressed to the bot, but
-  // still reports the high-water mark it scanned. Advance past ignored messages
-  // so we don't rescan them on every poll.
+  // The server delivers every inbound message, but still reports the high-water
+  // mark it scanned separately, because its LIMIT can truncate a large burst.
+  // Advance to head so nothing is rescanned on every poll.
   const head = typeof data.head === 'number' ? data.head : cursor;
 
   if (!data.messages.length) {

@@ -331,17 +331,39 @@ Groups only sync into the bridge's store once a message has been sent in them.
 
 **Fix:** send one message in the group.
 
-### Group @-mentions do not wake the agent
+### Group messages do not wake the agent
 
-The notifier detects mentions by looking for the bot's phone number **and** its
-LID in the message text, because WhatsApp writes mentions using the LID.
+Every message in a group the bot belongs to should wake it. No @-mention is
+needed. If nothing fires, work down the hops rather than suspecting the filter,
+because there is no longer a group filter to blame.
 
-**Check:** `curl -s http://127.0.0.1:8011/api/health` should show both in
-`selfIds`. If it is empty, the notifier cannot read `whatsapp.db`; check
-`WA_NOTIFIER_SELF_DB` in `env.sh`.
+**Check 1, did the message reach the database:**
 
-Also note the mention must be a real mention inserted by the sender's app.
-Typing the digits as plain text is not the same thing.
+```bash
+sqlite3 "file:$WA_NOTIFIER_DB?mode=ro" \
+  "SELECT rowid, chat_jid, sender, content FROM messages ORDER BY rowid DESC LIMIT 5;"
+```
+
+If the message is absent, the problem is the bridge, not the notifier. Check
+`bridge.out.log` for a `Client/Recv` line carrying that group JID.
+
+**Check 2, does the notifier serve it.** Take the rowid *before* the message and
+ask for everything after it:
+
+```bash
+curl -s "http://127.0.0.1:8011/api/new?since=<rowid-1>"
+```
+
+The message should appear. If it does, the notifier is fine and the failure is
+in the extension or the Aside routine.
+
+**Check 3, is the extension polling:** `curl -s http://127.0.0.1:8011/api/health`
+and look at `lastPollSecondsAgo`. It should be under 30. If it is `null` or
+large, the extension is unloaded, crashed, or pointed at the wrong port.
+
+Note that the bot's own messages never wake it (`is_from_me = 0`), and that a
+wake can take up to ~55s to arrive because of the 30s poll plus the 25s
+quiet-period debounce.
 
 ---
 

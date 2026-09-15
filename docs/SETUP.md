@@ -229,13 +229,16 @@ minimum for MV3 alarms; setting it lower does nothing.
 
 ## Adding the bot to a group
 
-Add the bot's number to a WhatsApp group as you would any contact. It will only
-wake on messages that @-mention it or reply to something it said.
+Add the bot's number to a WhatsApp group as you would any contact. From then on
+**every message in that group wakes the agent**, whether or not the bot is
+@-mentioned. There is no tagging requirement.
 
-Two quirks: a group does not appear in `list_chats` until at least one message
-has been sent in it, and an @-mention only registers when the sender's app
-actually inserts the mention (typing the digits as plain text is not the same
-thing).
+This means adding the bot to a group is the whole opt-in, and removing it is the
+only off switch. Do not add it to a high-traffic group unless you actually want
+the agent reading all of it.
+
+One quirk to know: a group does not appear in `list_chats` until at least one
+message has been sent in it.
 
 Before you do this, read [SECURITY.md](SECURITY.md). Group members are not the
 owner, and the routine prompt deliberately treats them differently.
