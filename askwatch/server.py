@@ -198,9 +198,15 @@ def compose(item, reminder=False):
     request = item["request"]
     lines = []
 
-    prefix = "Still waiting" if reminder else "Aside needs you"
-    lines.append("*{}* \u2014 {} on `{}`".format(prefix, KIND_LABEL.get(kind, kind), MACHINE))
-    lines.append("")
+    # Lead with the question itself. WhatsApp already shows which chat this
+    # came from, so an "Aside needs you on <machine>" banner is dead weight:
+    # it pushes the actual question out of the two lines a lock screen gives
+    # you.
+    if reminder:
+        # The one marker worth keeping. With REMIND_AFTER on, an unannotated
+        # repeat is indistinguishable from a second, different question.
+        lines.append("_Still waiting_")
+        lines.append("")
 
     if kind == "ask-user-question":
         questions = request.get("questions") or []
@@ -223,6 +229,10 @@ def compose(item, reminder=False):
         if len(questions) > 2:
             lines.append("_(+{} more questions)_".format(len(questions) - 2))
     else:
+        # A confirmation or permission prompt reads as a statement rather than
+        # a question, so with no tag at all you cannot tell you are being
+        # asked to approve something. Worth one line.
+        lines.append("_{}_".format(KIND_LABEL.get(kind, kind)))
         title = clip(request.get("title", ""), 80)
         if title:
             lines.append("*{}*".format(title))
@@ -230,9 +240,10 @@ def compose(item, reminder=False):
         lines.append("")
 
     lines.append("Task: {}".format(clip(item["title"], 80)))
-    lines.append("Session: {}".format(item["session_id"]))
     lines.append("")
-    lines.append("_Answer it in Aside on {} \u2014 I can't answer from here._".format(MACHINE))
+    # Kept deliberately: this channel is one-way, and replying into this chat
+    # can trip the connector into opening a brand new session instead.
+    lines.append("_Answer in Aside._")
 
     return "\n".join(line for line in lines).strip()
 

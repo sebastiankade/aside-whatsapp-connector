@@ -7,7 +7,7 @@
     <array>
       <string>__HOME__/Library/Application Support/aside-whatsapp/run-askwatch.sh</string>
     </array>
-    <key>WorkingDirectory</key><string>__HOME__/Dev/aside-whatsapp-connector</string>
+    <key>WorkingDirectory</key><string>__REPO__</string>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
     <key>ThrottleInterval</key><integer>10</integer>

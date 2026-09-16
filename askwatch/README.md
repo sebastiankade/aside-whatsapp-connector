@@ -68,13 +68,25 @@ Assumes the connector is already installed and paired on this machine.
    Check the account number in `ASKWATCH_STATE_DB`. `u/0` is the first
    account; a second Aside account is `u/1`, and it has its own state DB.
 
+   `ASKWATCH_RECIPIENT` is the phone you **read**, which is usually not the
+   number the bridge is logged in as. If the worker is paired to its own
+   line the two differ, and setting this to the bridge's own number sends
+   every alert into that account's "Message Yourself" chat, where you will
+   never see it. This fails silently in the worst way: the bridge returns
+   success and the message really is delivered, just to the wrong place. Do
+   not read it out of `whatsmeow_device`; use the number on the handset in
+   your pocket.
+
 2. Install the launcher and LaunchAgent:
 
    ```sh
    cp askwatch/run-askwatch.sh "$HOME/Library/Application Support/aside-whatsapp/"
    chmod +x "$HOME/Library/Application Support/aside-whatsapp/run-askwatch.sh"
 
-   sed "s|__HOME__|$HOME|g" askwatch/com.aside-whatsapp.askwatch.plist \
+   source "$HOME/Library/Application Support/aside-whatsapp/env.sh"
+
+   sed -e "s|__HOME__|$HOME|g" -e "s|__REPO__|$ASIDE_WA_REPO|g" \
+     askwatch/com.aside-whatsapp.askwatch.plist \
      > "$HOME/Library/LaunchAgents/com.aside-whatsapp.askwatch.plist"
 
    xattr -dr com.apple.quarantine \
@@ -89,6 +101,14 @@ Assumes the connector is already installed and paired on this machine.
    Strip quarantine on every file the agent wrote, including the plist.
    A quarantined file runs fine from a terminal and is refused by launchd.
    Ignore whatever `bootstrap` prints; verify with `launchctl print` instead.
+
+   `WorkingDirectory` has to be a directory that exists or launchd refuses
+   the job before the wrapper ever runs, which is why it is templated from
+   `ASIDE_WA_REPO` instead of assuming the repo sits in `~/Dev`.
+
+   Run these in a real terminal. `bootstrap`, `bootout` and `kickstart` all
+   fail from inside an Aside session, which can read the launchd domain but
+   not modify it.
 
 3. Verify:
 
@@ -154,6 +174,9 @@ by ordering; and consider refusing to relay `action-confirmation` entirely.
 |---|---|
 | `cannot open state db` | wrong account number, or path not expanded |
 | `bridge HTTP 401` | `ASKWATCH_TOKEN_FILE` wrong, or bridge regenerated its token |
+| `Bootstrap failed: 5: Input/output error` | `WorkingDirectory` does not exist, or you ran `launchctl` from inside an Aside session instead of a terminal |
+| sends succeed but nothing arrives | `ASKWATCH_RECIPIENT` is the bridge's own number; alerts are sitting in its Message Yourself chat |
+| startup line shows a stale recipient/interval | env edits are read once at startup; `bootout` + `bootstrap` to apply them |
 | `query failed (Aside schema may have changed)` | Aside update moved the suspension shape; the watcher stays quiet rather than crash-looping |
 | nothing arrives, no errors | still on the first-run adoption poll, or nothing is actually suspended |
 | every stale question arrives at once | seen-file was deleted *and* the process restarted mid-write; safe to ignore once |
