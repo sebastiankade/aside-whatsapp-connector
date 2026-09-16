@@ -10,6 +10,10 @@ store/
 .env
 env.sh
 
+# askwatch dedupe cursor, when left at its default location
+.askwatch-seen.json
+.askwatch-seen.json.tmp
+
 __pycache__/
 *.pyc
 .DS_Store
